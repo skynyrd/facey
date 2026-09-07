@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+html {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Roboto, sans-serif;
+}
