@@ -98,7 +98,7 @@ export default function PeopleView() {
             disabled={selected.size < 2 || busy}
             className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40"
           >
-            Aynı Kişi — Birleştir
+            Aynı Kişi Olarak Birleştir
           </button>
           <button
             onClick={() => setSelected(new Set())}

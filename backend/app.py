@@ -277,8 +277,6 @@ def set_settings(body: SettingsIn):
     return {"ok": True}
 
 
-
-
 # ---------- maintenance ----------
 
 @app.post("/api/cache/clear")

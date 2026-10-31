@@ -25,7 +25,6 @@ export default function ExportView() {
     get<Group[]>("/groups").then(setGroups);
   }, []);
 
-  // refetch the matching photos whenever the selection changes
   useEffect(() => {
     if (selected.size === 0) {
       setPreview(null);
@@ -38,7 +37,6 @@ export default function ExportView() {
     return () => clearTimeout(t);
   }, [selected]);
 
-  // poll the status while an export is running
   useEffect(() => {
     if (status?.phase !== "running") return;
     const id = setInterval(async () => {

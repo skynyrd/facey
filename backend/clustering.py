@@ -53,7 +53,6 @@ def cluster_unassigned() -> dict:
 
     ids, X = _load_matrix(rows)
 
-    # 1) assign to existing cluster centroids by cosine similarity
     assigned: dict[int, int] = {}
     centroids, cent_ids = _cluster_centroids(conn)
     if centroids is not None:
@@ -64,7 +63,6 @@ def cluster_unassigned() -> dict:
             if best_sim[i] >= thr_assign:
                 assigned[fid] = cent_ids[int(best[i])]
 
-    # 2) cluster whatever is left among themselves
     remaining = [i for i, fid in enumerate(ids) if fid not in assigned]
     new_clusters = 0
     if len(remaining) == 1:

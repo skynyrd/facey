@@ -75,7 +75,7 @@ export default function ClusterDetail({
             onChange={(e) => setName(e.target.value)}
             onBlur={saveName}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            placeholder={`Kişi #${cluster.id} — isim verin`}
+            placeholder={`Kişi #${cluster.id} için bir isim girin`}
             className="w-64 rounded-lg border border-transparent px-2 py-1 text-lg font-semibold outline-none focus:border-neutral-300"
           />
           <span className="text-sm text-neutral-400">

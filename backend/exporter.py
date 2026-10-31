@@ -80,7 +80,7 @@ def _run(files, root: Path, dest: Path, mode: str) -> None:
             src_size = src.stat().st_size
             if target.exists():
                 if target.stat().st_size == src_size:
-                    state["skipped"] += 1     # already exported
+                    state["skipped"] += 1
                     continue
                 target = _unique_target(target)
             target.parent.mkdir(parents=True, exist_ok=True)

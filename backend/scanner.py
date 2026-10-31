@@ -10,7 +10,7 @@ import clustering
 import faces as faces_mod
 
 PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".tif", ".tiff", ".bmp"}
-# videos are recorded but not processed (phase 2)
+# videos are indexed but not analysed yet
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".3gp", ".mts", ".wmv"}
 
 # phase: idle | enumerating | scanning | clustering | done | error
@@ -166,7 +166,6 @@ def _enumerate() -> None:
                         "INSERT INTO media_files(library_id, rel_path, type, size, mtime) VALUES (?,?,?,?,?)",
                         (lib["id"], rel, ftype, st.st_size, st.st_mtime))
                 elif row["size"] != st.st_size or abs(row["mtime"] - st.st_mtime) > 1e-6:
-                    # changed: drop the old faces and the stale preview, reprocess
                     conn.execute("DELETE FROM faces WHERE file_id=?", (row["id"],))
                     (db.PHOTO_THUMBS_DIR / f"{row['id']}.jpg").unlink(missing_ok=True)
                     conn.execute(

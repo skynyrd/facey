@@ -156,7 +156,7 @@ export default function ScanView({ scan }: { scan: ScanStatus | null }) {
 
       {scan.phase === "done" && (
         <p className="mt-4 text-center text-sm text-neutral-500">
-          Tarama bitti — <b>Kişiler</b> sekmesinden yüzleri inceleyebilirsiniz.
+          Tarama bitti. <b>Kişiler</b> sekmesinden yüzleri inceleyebilirsiniz.
         </p>
       )}
     </div>

@@ -1,9 +1,9 @@
 """SQLite schema and connection helpers.
 
 Application data lives under ~/Library/Application Support/facey/:
-  facey.db      — metadata + embeddings
-  face_thumbs/  — face crops (small JPEGs)
-  photo_thumbs/ — photo previews, generated on demand
+  facey.db       metadata and embeddings
+  face_thumbs/   face crops (small JPEGs)
+  photo_thumbs/  photo previews, generated on demand
 The original photos are never written to.
 """
 import os
