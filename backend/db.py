@@ -1,6 +1,7 @@
 """SQLite schema and connection helpers.
 
-Application data lives under ~/Library/Application Support/facey/:
+Application data lives in the platform's per-user data folder (see
+default_app_dir):
   facey.db       metadata and embeddings
   face_thumbs/   face crops (small JPEGs)
   photo_thumbs/  photo previews, generated on demand
@@ -8,10 +9,23 @@ The original photos are never written to.
 """
 import os
 import sqlite3
+import sys
 import threading
 from pathlib import Path
 
-DEFAULT_APP_DIR = Path.home() / "Library" / "Application Support" / "facey"
+
+def default_app_dir(platform: str = sys.platform, env=os.environ, home: Path | None = None) -> Path:
+    """~/Library/Application Support/facey on macOS, %APPDATA%\\facey on Windows,
+    $XDG_DATA_HOME/facey (or ~/.local/share/facey) elsewhere."""
+    home = home or Path.home()
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / "facey"
+    if platform == "win32":
+        return Path(env.get("APPDATA") or home / "AppData" / "Roaming") / "facey"
+    return Path(env.get("XDG_DATA_HOME") or home / ".local" / "share") / "facey"
+
+
+DEFAULT_APP_DIR = default_app_dir()
 
 # FACEY_DATA_DIR moves the data elsewhere (tests, portable installs).
 APP_DIR = Path(os.environ.get("FACEY_DATA_DIR") or DEFAULT_APP_DIR)

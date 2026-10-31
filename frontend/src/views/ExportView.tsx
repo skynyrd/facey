@@ -23,6 +23,8 @@ export default function ExportView() {
   useEffect(() => {
     get<Cluster[]>("/clusters").then(setClusters);
     get<Group[]>("/groups").then(setGroups);
+    // an export keeps running when the user switches tabs; pick it back up
+    get<ExportStatus>("/export/status").then(setStatus);
   }, []);
 
   useEffect(() => {

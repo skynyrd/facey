@@ -4,7 +4,9 @@ PY      := .venv/bin/python
 PIP     := .venv/bin/pip
 PYTEST  := .venv/bin/pytest
 FRONT   := frontend
-APPDATA := $(HOME)/Library/Application Support/facey
+VENV    := .venv/.installed
+# Same lookup as the app: FACEY_DATA_DIR, else the platform's data folder.
+APPDATA  = $(shell python3 -c 'import sys; sys.path.insert(0, "backend"); import db; print(db.APP_DIR)')
 
 .DEFAULT_GOAL := help
 .PHONY: help setup run dev headless test test-all test-model coverage lint typecheck build check clean reset
@@ -15,13 +17,16 @@ help: ## Show this help
 
 # ---------------------------------------------------------------- setup
 
-setup: .venv $(FRONT)/node_modules build ## Install everything (Python + Node + build UI)
+setup: $(VENV) $(FRONT)/node_modules build ## Install everything (Python + Node + build UI)
 	@echo "Ready. Run: make run"
 
-.venv:
-	python3 -m venv .venv
+# A stamp file instead of the folder itself, so a broken or outdated venv
+# gets repaired and a change to the requirements triggers a reinstall.
+$(VENV): requirements.txt requirements-dev.txt
+	test -x $(PIP) || python3 -m venv --clear .venv
 	$(PIP) install -q -U pip wheel setuptools
 	$(PIP) install -q -r requirements-dev.txt
+	@touch $@
 
 $(FRONT)/node_modules: $(FRONT)/package.json
 	cd $(FRONT) && npm install
@@ -73,5 +78,6 @@ clean: ## Remove build output and caches
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
 
 reset: ## Delete the local database, faces and thumbnails (photos are untouched)
-	@printf "Delete %s ? [y/N] " "$(APPDATA)"; read ans; \
-	case "$$ans" in [yY]*) rm -rf "$(APPDATA)"; echo "Deleted.";; *) echo "Cancelled.";; esac
+	@dir="$(APPDATA)"; test -n "$$dir" || { echo "Could not find the data folder."; exit 1; }; \
+	printf "Delete %s ? [y/N] " "$$dir"; read ans; \
+	case "$$ans" in [yY]*) rm -rf "$$dir"; echo "Deleted.";; *) echo "Cancelled.";; esac

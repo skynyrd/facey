@@ -301,3 +301,94 @@ def test_worker_crash_is_surfaced_in_the_status(photo_root, fake_faces, monkeypa
     status = wait_scan()
 
     assert status["phase"] == "error" and "disk read failed" in status["error"]
+
+
+def test_deleted_file_drops_its_preview_and_face_crops(scanned, fake_faces):
+    """SQLite reuses the highest id, so leftovers would be shown for a newer file."""
+    import thumbs
+    file_id = db.get_db().execute(
+        "SELECT id FROM media_files WHERE rel_path='trip/ali_veli.jpg'").fetchone()["id"]
+    thumbs.get_photo_thumb(file_id)
+    assert list(db.FACE_THUMBS_DIR.glob(f"{file_id}_*.jpg"))
+
+    (scanned / "trip/ali_veli.jpg").unlink()
+    scanner.start_scan(str(scanned))
+    wait_scan()
+
+    assert not (db.PHOTO_THUMBS_DIR / f"{file_id}.jpg").exists()
+    assert not list(db.FACE_THUMBS_DIR.glob(f"{file_id}_*.jpg"))
+
+
+def test_modified_photo_drops_crops_of_faces_that_are_gone(scanned, fake_faces):
+    conn = db.get_db()
+    file_id = conn.execute(
+        "SELECT id FROM media_files WHERE rel_path='trip/ali_veli.jpg'").fetchone()["id"]
+    assert (db.FACE_THUMBS_DIR / f"{file_id}_1.jpg").exists()
+
+    target = scanned / "trip/ali_veli.jpg"
+    os.utime(target, (1_600_000_000, 1_600_000_000))
+    fake_faces.fail_on = {"ali_veli.jpg"}
+    scanner.start_scan(str(scanned))
+    wait_scan()
+
+    assert not list(db.FACE_THUMBS_DIR.glob(f"{file_id}_*.jpg"))
+
+
+def test_model_failure_stops_the_scan_and_keeps_photos_pending(photo_root, fake_faces, monkeypatch):
+    import faces as faces_mod
+
+    def no_model(path, file_id):
+        raise faces_mod.ModelLoadError("no network")
+
+    monkeypatch.setattr(faces_mod, "extract_faces", no_model)
+    scanner.start_scan(str(photo_root))
+    status = wait_scan()
+
+    assert status["phase"] == "error" and "no network" in status["error"]
+    assert status["errors"] == 0 and status["pending"] == 5
+    assert status["current"] is None
+
+    monkeypatch.setattr(faces_mod, "extract_faces", fake_faces)
+    scanner.resume()
+    status = wait_scan()
+    assert status["phase"] == "done" and status["pending"] == 0 and status["faces"] == 5
+
+
+def test_failed_photo_leaves_no_partial_faces(photo_root, fake_faces, monkeypatch):
+    import faces as faces_mod
+
+    def half_broken(path, file_id):
+        w, h, found = fake_faces(path, file_id)
+        if path.name == "ali_veli.jpg":
+            found[1]["embedding"] = None  # blows up after the first face is inserted
+        return w, h, found
+
+    monkeypatch.setattr(faces_mod, "extract_faces", half_broken)
+    scanner.start_scan(str(photo_root))
+    wait_scan()
+
+    assert files_in_db()["trip/ali_veli.jpg"]["status"] == "error"
+    assert db.get_db().execute(
+        "SELECT COUNT(*) c FROM faces f JOIN media_files m ON m.id = f.file_id"
+        " WHERE m.rel_path='trip/ali_veli.jpg'").fetchone()["c"] == 0
+
+
+def test_same_folder_spelled_differently_is_an_incremental_scan(scanned, fake_faces):
+    conn = db.get_db()
+    ali = conn.execute("SELECT id FROM clusters ORDER BY id LIMIT 1").fetchone()["id"]
+    conn.execute("UPDATE clusters SET name='Ali' WHERE id=?", (ali,))
+    conn.commit()
+    calls = len(fake_faces.calls)
+
+    scanner.start_scan(str(scanned / "trip" / ".."))
+    wait_scan()
+
+    assert len(fake_faces.calls) == calls
+    assert conn.execute("SELECT name FROM clusters WHERE id=?", (ali,)).fetchone()["name"] == "Ali"
+
+
+def test_pause_without_a_running_scan_does_nothing(scanned):
+    scanner.pause()
+
+    status = scanner.get_status()
+    assert status["paused"] is False and status["phase"] == "done"

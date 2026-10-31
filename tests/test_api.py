@@ -307,3 +307,61 @@ def test_unreadable_photo_preview_returns_500(client, scanned):
     (scanned / "trip/ali.jpg").write_bytes(b"not a jpeg")
 
     assert client.get(f"/api/thumb/{file_id}").status_code == 500
+
+
+# ---------- validation of ids ----------
+
+def test_merging_into_an_unknown_cluster_returns_404(client, scanned):
+    veli = cluster_for(client, "home/veli.jpg")
+    res = client.post("/api/clusters/merge", json={"target_id": 9999, "source_ids": [veli]})
+
+    assert res.status_code == 404
+    assert veli in [c["id"] for c in client.get("/api/clusters").json()]
+
+
+def test_updating_an_unknown_cluster_returns_404(client, scanned):
+    assert client.post("/api/clusters/9999", json={"name": "X"}).status_code == 404
+
+
+def test_group_with_an_unknown_cluster_returns_400(client, scanned):
+    ali = cluster_for(client, "trip/ali.jpg")
+    res = client.post("/api/groups", json={"name": "Family X", "cluster_ids": [ali, 9999]})
+
+    assert res.status_code == 400 and "9999" in res.json()["detail"]
+    assert client.get("/api/groups").json() == []
+
+
+def test_face_without_a_thumbnail_returns_404(client, scanned):
+    conn = db.get_db()
+    face_id = conn.execute("SELECT id FROM faces LIMIT 1").fetchone()["id"]
+    conn.execute("UPDATE faces SET thumb_name=NULL WHERE id=?", (face_id,))
+    conn.commit()
+
+    assert client.get(f"/api/face-thumb/{face_id}").status_code == 404
+
+
+def test_non_finite_or_negative_settings_are_rejected(client):
+    for bad in ("nan", "inf", "-0.1"):
+        res = client.post("/api/settings", json={"values": {"assign_threshold": bad}})
+        assert res.status_code == 400, bad
+    assert client.get("/api/settings").json()["assign_threshold"] == "0.45"
+
+
+# ---------- CORS ----------
+
+def preflight(client, origin: str):
+    return client.options("/api/export", headers={
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    })
+
+
+def test_other_websites_cannot_call_the_api(client):
+    res = preflight(client, "https://evil.example")
+    assert "access-control-allow-origin" not in res.headers
+
+
+def test_vite_dev_server_can_call_the_api(client):
+    res = preflight(client, "http://localhost:5173")
+    assert res.headers["access-control-allow-origin"] == "http://localhost:5173"

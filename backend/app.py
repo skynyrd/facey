@@ -1,4 +1,5 @@
 """FastAPI application: every API route, plus the built frontend in production."""
+import math
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -15,9 +16,11 @@ import thumbs
 
 app = FastAPI(title="Facey")
 
-# in dev the UI is served by Vite (5173), a different origin
+# In production the UI is same-origin. Only the Vite dev server gets CORS: with a
+# wildcard, any web page open in a browser could drive this API and move photos.
+DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    CORSMiddleware, allow_origins=DEV_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/api/health")
@@ -108,7 +111,10 @@ class MergeIn(BaseModel):
 
 @app.post("/api/clusters/merge")
 def merge(body: MergeIn):
-    clustering.merge_clusters(body.target_id, body.source_ids)
+    try:
+        clustering.merge_clusters(body.target_id, body.source_ids)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
     return {"ok": True}
 
 
@@ -120,6 +126,8 @@ class ClusterUpdate(BaseModel):
 @app.post("/api/clusters/{cluster_id}")
 def update_cluster(cluster_id: int, body: ClusterUpdate):
     conn = db.get_db()
+    if conn.execute("SELECT 1 FROM clusters WHERE id=?", (cluster_id,)).fetchone() is None:
+        raise HTTPException(404, f"Kişi bulunamadı: #{cluster_id}")
     if body.name is not None:
         conn.execute("UPDATE clusters SET name=? WHERE id=?",
                      (body.name.strip() or None, cluster_id))
@@ -151,7 +159,7 @@ def recluster():
 def face_thumb(face_id: int):
     row = db.get_db().execute(
         "SELECT thumb_name FROM faces WHERE id=?", (face_id,)).fetchone()
-    if row is None:
+    if row is None or not row["thumb_name"]:
         raise HTTPException(404)
     path = db.FACE_THUMBS_DIR / row["thumb_name"]
     if not path.exists():
@@ -195,13 +203,19 @@ def save_group(body: GroupIn):
     if not name or not body.cluster_ids:
         raise HTTPException(400, "İsim ve en az bir kişi gerekli")
     conn = db.get_db()
+    ids = set(body.cluster_ids)
+    qmarks = ",".join("?" * len(ids))
+    known = {r["id"] for r in conn.execute(
+        f"SELECT id FROM clusters WHERE id IN ({qmarks})", list(ids))}
+    if ids - known:
+        raise HTTPException(400, f"Bilinmeyen kişi: {sorted(ids - known)}")
     row = conn.execute("SELECT id FROM groups WHERE name=?", (name,)).fetchone()
     if row:
         gid = row["id"]
         conn.execute("DELETE FROM group_members WHERE group_id=?", (gid,))
     else:
         gid = conn.execute("INSERT INTO groups(name) VALUES (?)", (name,)).lastrowid
-    for cid in set(body.cluster_ids):
+    for cid in ids:
         conn.execute(
             "INSERT OR IGNORE INTO group_members(group_id, cluster_id) VALUES (?,?)", (gid, cid))
     conn.commit()
@@ -269,9 +283,11 @@ def set_settings(body: SettingsIn):
         if k not in db.DEFAULT_SETTINGS:
             raise HTTPException(400, f"Bilinmeyen ayar: {k}")
         try:
-            float(v)
+            number = float(v)
         except (TypeError, ValueError):
             raise HTTPException(400, f"'{k}' sayısal olmalı, alınan: {v!r}")
+        if not math.isfinite(number) or number < 0:
+            raise HTTPException(400, f"'{k}' sıfır veya pozitif bir sayı olmalı, alınan: {v!r}")
     for k, v in body.values.items():
         db.set_setting(k, v)
     return {"ok": True}

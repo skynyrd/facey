@@ -134,3 +134,14 @@ def test_unknown_setting_falls_back_to_default():
     db.get_db().execute("DELETE FROM settings WHERE key='min_face_px'")
     db.get_db().commit()
     assert db.get_setting("min_face_px") == db.DEFAULT_SETTINGS["min_face_px"]
+
+
+def test_default_data_dir_follows_the_platform(tmp_path):
+    home = tmp_path / "home"
+    assert db.default_app_dir("darwin", {}, home) == home / "Library/Application Support/facey"
+    assert db.default_app_dir("win32", {"APPDATA": str(tmp_path / "roam")}, home) == \
+        tmp_path / "roam" / "facey"
+    assert db.default_app_dir("win32", {}, home) == home / "AppData/Roaming/facey"
+    assert db.default_app_dir("linux", {"XDG_DATA_HOME": str(tmp_path / "xdg")}, home) == \
+        tmp_path / "xdg" / "facey"
+    assert db.default_app_dir("linux", {}, home) == home / ".local/share/facey"

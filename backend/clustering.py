@@ -110,13 +110,25 @@ def refresh_covers(conn) -> None:
 
 
 def merge_clusters(target_id: int, source_ids: list[int]) -> None:
+    """Moves every face of the sources into the target and deletes the sources.
+
+    Raises LookupError if the target does not exist.
+    """
     conn = db.get_db()
-    sources = [cid for cid in source_ids if cid != target_id]
+    if conn.execute("SELECT 1 FROM clusters WHERE id=?", (target_id,)).fetchone() is None:
+        raise LookupError(f"Kişi bulunamadı: #{target_id}")
+    sources = list(dict.fromkeys(cid for cid in source_ids if cid != target_id))
     if not sources:
         return
     qmarks = ",".join("?" * len(sources))
     conn.execute(
         f"UPDATE faces SET cluster_id=? WHERE cluster_id IN ({qmarks})",
+        [target_id, *sources])
+    # Group memberships follow the faces, otherwise deleting the sources would
+    # silently drop those people from saved groups.
+    conn.execute(
+        f"INSERT OR IGNORE INTO group_members(group_id, cluster_id)"
+        f" SELECT group_id, ? FROM group_members WHERE cluster_id IN ({qmarks})",
         [target_id, *sources])
     # an unnamed target inherits the first name found among the sources
     target = conn.execute("SELECT name FROM clusters WHERE id=?", (target_id,)).fetchone()

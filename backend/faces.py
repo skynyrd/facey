@@ -19,12 +19,16 @@ _analyzer = None
 model_state = {"status": "not_loaded", "error": None}
 
 
+class ModelLoadError(RuntimeError):
+    """The model could not be downloaded or loaded. Not a problem with the photo."""
+
+
 def get_analyzer():
     """Downloads and loads buffalo_l on the first call (~330 MB, ~/.insightface)."""
     global _analyzer
     with _lock:
         if _analyzer is None:
-            model_state["status"] = "loading"
+            model_state.update({"status": "loading", "error": None})
             try:
                 from insightface.app import FaceAnalysis
                 analyzer = FaceAnalysis(
@@ -36,9 +40,8 @@ def get_analyzer():
                 _analyzer = analyzer
                 model_state["status"] = "ready"
             except Exception as exc:
-                model_state["status"] = "error"
-                model_state["error"] = str(exc)
-                raise
+                model_state.update({"status": "error", "error": str(exc)})
+                raise ModelLoadError(f"Yüz tanıma modeli yüklenemedi: {exc}") from exc
     return _analyzer
 
 

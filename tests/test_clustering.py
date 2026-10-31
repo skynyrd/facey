@@ -1,5 +1,6 @@
 """Clustering: automatic grouping, incremental assignment, surviving manual edits."""
 import numpy as np
+import pytest
 
 import clustering
 import db
@@ -259,3 +260,46 @@ def test_centroid_uses_all_faces_of_a_cluster():
 
     assert cluster_ids == [cluster_of(ids[0])]
     assert np.isclose(np.linalg.norm(centroids[0]), 1.0, atol=1e-5)
+
+
+def test_merge_keeps_the_merged_person_in_saved_groups():
+    """A group that held a source cluster must keep those faces after a merge."""
+    a, b = add_face("ali"), add_face("veli")
+    clustering.cluster_unassigned()
+    target, source = cluster_of(a), cluster_of(b)
+    conn = db.get_db()
+    gid = conn.execute("INSERT INTO groups(name) VALUES ('Family X')").lastrowid
+    conn.execute("INSERT INTO group_members VALUES (?, ?)", (gid, source))
+    conn.commit()
+
+    clustering.merge_clusters(target, [source])
+
+    members = [r["cluster_id"] for r in conn.execute(
+        "SELECT cluster_id FROM group_members WHERE group_id=?", (gid,))]
+    assert members == [target]
+
+
+def test_merge_does_not_duplicate_existing_group_membership():
+    a, b = add_face("ali"), add_face("veli")
+    clustering.cluster_unassigned()
+    target, source = cluster_of(a), cluster_of(b)
+    conn = db.get_db()
+    gid = conn.execute("INSERT INTO groups(name) VALUES ('Family X')").lastrowid
+    conn.executemany("INSERT INTO group_members VALUES (?, ?)", [(gid, target), (gid, source)])
+    conn.commit()
+
+    clustering.merge_clusters(target, [source, source])
+
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM group_members WHERE group_id=?", (gid,)).fetchone()["c"] == 1
+
+
+def test_merge_into_a_missing_cluster_is_rejected_and_changes_nothing():
+    b = add_face("veli")
+    clustering.cluster_unassigned()
+    source = cluster_of(b)
+
+    with pytest.raises(LookupError):
+        clustering.merge_clusters(source + 100, [source])
+
+    assert cluster_of(b) == source

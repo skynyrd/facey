@@ -28,6 +28,13 @@ def _clear_thumbs() -> None:
             f.unlink(missing_ok=True)
 
 
+def _drop_thumbs(file_id: int) -> None:
+    """Deletes a file's preview and face crops, so a reused id never shows them."""
+    (db.PHOTO_THUMBS_DIR / f"{file_id}.jpg").unlink(missing_ok=True)
+    for f in db.FACE_THUMBS_DIR.glob(f"{file_id}_*.jpg"):
+        f.unlink(missing_ok=True)
+
+
 def start_scan(root_path: str) -> None:
     """Records the library and starts the scan on a background thread.
 
@@ -35,7 +42,7 @@ def start_scan(root_path: str) -> None:
     previous data. The same root means an incremental scan.
     """
     global _thread
-    root = Path(root_path).expanduser()
+    root = Path(root_path).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"Klasör bulunamadı: {root}")
     with _lock:
@@ -64,7 +71,10 @@ def start_scan(root_path: str) -> None:
 
 
 def pause() -> None:
-    _pause.set()
+    """Pauses a running scan. Without one there is nothing to pause."""
+    with _lock:
+        if _thread is not None and _thread.is_alive():
+            _pause.set()
 
 
 def resume() -> None:
@@ -125,6 +135,7 @@ def _worker(enumerate_first: bool = True) -> None:
         _state["phase"] = "done"
     except Exception as exc:
         traceback.print_exc()
+        _state["current"] = None
         _state["phase"] = "error"
         _state["error"] = str(exc)
 
@@ -167,7 +178,7 @@ def _enumerate() -> None:
                         (lib["id"], rel, ftype, st.st_size, st.st_mtime))
                 elif row["size"] != st.st_size or abs(row["mtime"] - st.st_mtime) > 1e-6:
                     conn.execute("DELETE FROM faces WHERE file_id=?", (row["id"],))
-                    (db.PHOTO_THUMBS_DIR / f"{row['id']}.jpg").unlink(missing_ok=True)
+                    _drop_thumbs(row["id"])
                     conn.execute(
                         "UPDATE media_files SET size=?, mtime=?, status='pending', error=NULL, face_count=0 WHERE id=?",
                         (st.st_size, st.st_mtime, row["id"]))
@@ -176,6 +187,7 @@ def _enumerate() -> None:
     missing = [r["id"] for rel, r in existing.items() if rel not in seen]
     for fid in missing:
         conn.execute("DELETE FROM media_files WHERE id=?", (fid,))
+        _drop_thumbs(fid)
     conn.commit()
 
 
@@ -209,7 +221,13 @@ def _process_pending() -> None:
                 "UPDATE media_files SET status='done', width=?, height=?, face_count=?, scanned_at=?, error=NULL WHERE id=?",
                 (w, h, len(found), now, row["id"]))
             _state["run_faces"] += len(found)
+        except faces_mod.ModelLoadError:
+            # Every photo would fail the same way. Stop and leave them pending,
+            # so the next scan retries them instead of skipping them for good.
+            conn.rollback()
+            raise
         except Exception as exc:
+            conn.rollback()  # drop any faces inserted before the failure
             conn.execute(
                 "UPDATE media_files SET status='error', error=?, scanned_at=? WHERE id=?",
                 (str(exc)[:500], now, row["id"]))
